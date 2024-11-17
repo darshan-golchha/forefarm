@@ -4,7 +4,7 @@ from http import HTTPStatus
 import json
 from urllib.request import urlopen
 from . import farms_bp
-from .utils import is_valid_geojson, get_countyinfo
+from .utils import is_valid_geojson, get_countyinfo, get_labels
 from idrandgen import generate_random_id
 from bson import json_util
 from dotenv import load_dotenv, find_dotenv
@@ -221,78 +221,153 @@ def requires_auth(func):
 
     return decorated
 
-# Example route implementations using the new auth service
-@farms_bp.route('/', methods=['POST'])
+def handle_options_request():
+    response = current_app.make_default_options_response()
+    return response
+
+# Update the add_farm route to handle OPTIONS
+@farms_bp.route('/add-farm', methods=['POST', 'OPTIONS'])
 @cross_origin()
-@requires_auth
 def add_farm():
-    geojson = request.get_json()
-    if not geojson:
-        return jsonify({
-            "error": "invalid_request",
-            "description": "Invalid request body"
-        }), HTTPStatus.BAD_REQUEST
+    if request.method == 'OPTIONS':
+        return handle_options_request(['POST'])
         
+    # Your existing authentication check
+    @requires_auth
+    def handle_post():
+        geojson = request.get_json()
+        if not geojson:
+            return jsonify({
+                "error": "invalid_request",
+                "description": "Invalid request body"
+            }), HTTPStatus.BAD_REQUEST
+            
+        # Rest of your existing add_farm code
+        geojson['properties']['fieldId'] = generate_random_id()
+        geojson['properties']['user_id'] = get_user_id()
+        geojson['properties']['county_info'] = get_countyinfo(geojson)
 
-    # Add user_id from the token
-    geojson['properties']['fieldId'] = generate_random_id()
-    geojson['properties']['user_id'] = get_user_id()
-    geojson['properties']['county_info'] = get_countyinfo(geojson)
+        if not is_valid_geojson(geojson):
+            return jsonify({
+                "error": "invalid_format",
+                "description": "Invalid GeoJSON format"
+            }), HTTPStatus.BAD_REQUEST
 
-    # Validate geojson
-    if not is_valid_geojson(geojson):
-        return jsonify({
-            "error": "invalid_format",
-            "description": "Invalid GeoJSON format"
-        }), HTTPStatus.BAD_REQUEST
-
-    current_app.mongo.db.farms.insert_one(geojson)
-    return jsonify({"message": "Farm added successfully"}), HTTPStatus.OK
-
-# Method to update a farm of a user using the fieldId
-@farms_bp.route('/update-farm', methods=['PUT'])
-@cross_origin()
-@requires_auth
-def update_farm():
-    geojson = request.get_json()
-    if not geojson:
-        return jsonify({
-            "error": "invalid_request",
-            "description": "Invalid request body"
-        }), HTTPStatus.BAD_REQUEST
-
-
-    # Validate geojson
-    if not is_valid_geojson(geojson):
-        return jsonify({
-            "error": "invalid_format",
-            "description": "Invalid GeoJSON format"
-        }), HTTPStatus.BAD_REQUEST
-
-    # Update the farm
-    current_app.mongo.db.farms.update_one({"properties.fieldId": request.get_json()['properties']['fieldId']}, {"$set": geojson})
-    return jsonify({"message": "Farm updated successfully"}), HTTPStatus.OK
-
-# Method to delete a farm of a user using the fieldId
-@farms_bp.route('/delete-farm/<fieldId>', methods=['DELETE'])
-@cross_origin()
-@requires_auth
-def delete_farm(fieldId):
-    current_app.mongo.db.farms.delete_one({"properties.fieldId": fieldId})
-    return jsonify({"message": "Farm deleted successfully"}), HTTPStatus.OK
-
-@farms_bp.route('/user-farms', methods=['GET'])
-@cross_origin()
-@requires_auth
-def get_user_farms():
-    # Query farms only for the authenticated user
-    farms = list(current_app.mongo.db.farms.find({"properties.user_id": get_user_id()}))
+        current_app.mongo.db.farms.insert_one(geojson)
+        return jsonify({"message": "Farm added successfully"}), HTTPStatus.OK
     
-    if not farms:
-        return jsonify({
-            "message": "No farms found for this user"
-        }), HTTPStatus.NOT_FOUND
+    return handle_post()
+
+# Update the update_farm route
+@farms_bp.route('/update-farm', methods=['PUT', 'OPTIONS'])
+@cross_origin()
+def update_farm():
+    if request.method == 'OPTIONS':
+        return handle_options_request(['PUT'])
         
-    return json.loads(json_util.dumps(farms)), HTTPStatus.OK
+    @requires_auth
+    def handle_put():
+        geojson = request.get_json()
+        if not geojson:
+            return jsonify({
+                "error": "invalid_request",
+                "description": "Invalid request body"
+            }), HTTPStatus.BAD_REQUEST
 
+        if not is_valid_geojson(geojson):
+            return jsonify({
+                "error": "invalid_format",
+                "description": "Invalid GeoJSON format"
+            }), HTTPStatus.BAD_REQUEST
 
+        current_app.mongo.db.farms.update_one(
+            {"properties.fieldId": request.get_json()['properties']['fieldId']}, 
+            {"$set": geojson}
+        )
+        return jsonify({"message": "Farm updated successfully"}), HTTPStatus.OK
+    
+    return handle_put()
+
+# Update the delete_farm route
+@farms_bp.route('/delete-farm/<fieldId>', methods=['DELETE', 'OPTIONS'])
+@cross_origin()
+def delete_farm(fieldId):
+    if request.method == 'OPTIONS':
+        return handle_options_request(['DELETE'])
+        
+    @requires_auth
+    def handle_delete():
+        current_app.mongo.db.farms.delete_one({"properties.fieldId": fieldId})
+        return jsonify({"message": "Farm deleted successfully"}), HTTPStatus.OK
+    
+    return handle_delete()
+
+# Update the get_user_farms route
+@farms_bp.route('/user-farms', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_user_farms():
+    if request.method == 'OPTIONS':
+        return handle_options_request(['GET'])
+        
+    @requires_auth
+    def handle_get():
+        farms = list(current_app.mongo.db.farms.find({"properties.user_id": get_user_id()}))
+            
+        return json.loads(json_util.dumps(farms)), HTTPStatus.OK
+    
+    return handle_get()
+
+# Update the get_alerts route
+@farms_bp.route('/get-alerts', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_alerts():
+    if request.method == 'OPTIONS':
+        return handle_options_request(['GET'])
+        
+    @requires_auth
+    def handle_get():
+        farms = list(current_app.mongo.db.farms.find({"properties.user_id": get_user_id()}))
+        
+        res = []
+        for farm in farms:
+            county_info = farm['properties']['county_info']
+            labels = get_labels(county_info)
+            res.append({
+                "fieldId": farm['properties']['fieldId'],
+                "labels": labels
+            })
+        return jsonify(res), HTTPStatus.OK
+    
+    return handle_get()
+
+@farms_bp.route('/add-employee', methods=['POST', 'OPTIONS'])
+@cross_origin()
+def add_employee_to_farm():
+    if request.method == 'OPTIONS':
+        return handle_options_request(['POST'])
+    
+    @requires_auth
+    def handle_get():
+        fieldId = request.args.get('fieldId')
+        employee = request.args.get('employee')
+        current_app.mongo.db.farms.update_one(
+            {"properties.fieldId": fieldId},
+            {"$push": {"properties.employees": employee}}
+        )
+        return jsonify({"message": "Employee added successfully"}), HTTPStatus.OK
+    
+    return handle_get()
+
+@farms_bp.route('/get-employees', methods=['GET', 'OPTIONS'])
+@cross_origin()
+def get_employees():
+    if request.method == 'OPTIONS':
+        return handle_options_request(['GET'])
+    
+    @requires_auth
+    def handle_get():
+        fieldId = request.args.get('fieldId')
+        farm = current_app.mongo.db.farms.find_one({"properties.fieldId": fieldId})
+        return jsonify(farm['properties']['employees']), HTTPStatus.OK
+    
+    return handle_get()
