@@ -1,0 +1,16 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "name": "Sample Farm",
+                "description": "A farm spanning two counties in Wisconsin."
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[-88.99646933759112,43.3020296074929],[-89.02780662483944,43.30164306960921],[-89.02674434391568,43.265168612349754],[-88.99399068210258,43.26529753585703],[-88.99646933759112,43.3020296074929]]]
+            }
+        }
+    ]
+}
